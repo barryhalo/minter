@@ -2,20 +2,17 @@ import { ethers } from 'hardhat'
 import { assert, expect } from 'chai'
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/dist/src/signer-with-address'
 import { BigNumber, Contract } from 'ethers'
-import { deployContract, isValidContract } from './util/DeployContract'
+import {
+  deployContract,
+  isValidContract,
+  isValidContractFactory
+} from './util/DeployContract'
 import {
   checkChangedFinancialContractAddressEvent,
   checkDepositEvent,
   checkWithdrawalEvent
 } from './util/CheckEvent'
-import { doesNotMatch } from 'assert'
-import {
-  base64,
-  formatEther,
-  hexlify,
-  parseBytes32String,
-  parseEther
-} from 'ethers/lib/utils'
+import { parseEther } from 'ethers/lib/utils'
 
 /**
  * Assert vs expect vs should:
@@ -67,26 +64,27 @@ const collateralDeposit = BigNumber.from(parseEther(`${collateralRawValue}`)) //
 const collateralToRedeem = BigNumber.from(
   parseEther(`${collateralToRedeemRawValue}`)
 )
-const collateralDepositNumber = BigNumber.from(`${collateralRawValue * 100}`) // padded with 2 extra zeroes
 const collateralToRedeemNumber = BigNumber.from(
   `${collateralToRedeemRawValue * 100}`
 ) // padded with 2 extra zeroes
 
 // CONTRACT ADDRESSES
-const empContractAddress = process.env.FINANCIAL_CONTRACT_ADDRESS
-const collateralAddressUMA = process.env.DAI_CONTRACT_ADDRESS
-const ubeAddressUma = process.env.UBE_CONTRACT_ADDRESS
-console.log('financialContractAddress: ', empContractAddress)
-console.log('collateralAddressUMA: ', collateralAddressUMA)
-console.log('ubeAddressUma: ', ubeAddressUma)
+const network = process.env.CHAIN_NETWORK
+
+// if on kovan, assign contract addresses beforehand. otherwise, deploy UMA addresses in before fixture below
+if (network.localeCompare('KOVAN')) {
+  const empContractAddress = process.env.FINANCIAL_CONTRACT_ADDRESS
+  const collateralAddressUMA = process.env.DAI_CONTRACT_ADDRESS
+  const ubeAddressUma = process.env.UBE_CONTRACT_ADDRESS
+  console.log('financialContractAddress: ', empContractAddress)
+  console.log('collateralAddressUMA: ', collateralAddressUMA)
+  console.log('ubeAddressUma: ', ubeAddressUma)
+}
 
 const intialCollateral = parseEther('100000')
 
 const expectedUserCollateralLeft = BigNumber.from(parseEther('1410'))
 const expectedUserUBELeft = BigNumber.from(parseEther('470'))
-
-// Value to be set after getting getGCR()
-let expectedUBE, expectedConvertedCollateral
 
 // single run per test setup
 before(async () => {
@@ -95,6 +93,90 @@ before(async () => {
   contractCreatorAccount = accounts[0]
   userAddress = accounts[1]
   otherUserAddress = accounts[2]
+
+  // deploy and get references to UMA contracts for local testing only (and not kovan nor mainnet)
+  if (network.localeCompare('LOCALHOST')) {
+    it('Can deploy and get ref to UMA Contracts', async () => {
+      let isValid
+
+      // deploy UMA core contracts first
+
+      // deploy Timer contract
+      const timerFactory = await ethers.getContractFactory('Timer')
+      const timerContract = await timerFactory.deploy()
+      isValid = await isValidContract(timerContract, 'Timer')
+
+      const empCreatorFactory = await ethers.getContractFactory(
+        'ExpiringMultiPartyCreator'
+      )
+      let empCreatorContract = await empCreatorFactory.deploy()
+      isValid = await isValidContract(
+        empCreatorContract,
+        'ExpiringMultiPartyCreator'
+      )
+
+      const constructorParams = {
+        expirationTimestamp: '1706780800',
+        collateralAddress: collateralAddressUMA,
+        priceFeedIdentifier: 'UMATEST',
+        syntheticName: 'UBE Token',
+        syntheticSymbol: 'UBE',
+        collateralRequirement: 1500000000000000000,
+        disputeBondPercentage: 100000000000000000,
+        sponsorDisputeRewardPercentage: 100000000000000000,
+        disputerDisputeRewardPercentage: 100000000000000000,
+        minSponsorTokens: '100000000000000',
+        timerAddress: timerContract.address,
+        withdrawalLiveness: 7200,
+        liquidationLiveness: 7200,
+        excessTokenBeneficiary: '0x0000000000000000000000000000000000000000',
+        financialProductLibraryAddress:
+          '0x0000000000000000000000000000000000000000'
+      }
+
+      const identifierWhitelistFactory = await ethers.getContractFactory(
+        'IdentifierWhitelist'
+      )
+      const identifierWhitelistContract = await identifierWhitelistFactory.deploy()
+      isValid = await isValidContract(
+        identifierWhitelistContract,
+        'IdentifierWhitelist'
+      )
+      await identifierWhitelistContract.addSupportedIdentifier(
+        constructorParams.priceFeedIdentifier
+      )
+
+      const registryCreatorFactory = await ethers.getContractFactory('Registry')
+      const registryContract = registryCreatorFactory.deploy()
+      isValid = await isValidContract(registryContract, 'Registry')
+      await registryContract.addMember(1, empCreatorContract.address)
+
+      const AddressWhitelistFactory = await ethers.getContractFactory(
+        'AddressWhitelist'
+      )
+      const collateralTokenWhitelist = await AddressWhitelistFactory.deployed()
+      isValid = await isValidContract(
+        collateralTokenWhitelist,
+        'AddressWhitelist'
+      )
+      await collateralTokenWhitelist.addToWhitelist(collateralAddressUMA)
+
+      const txResult = await empCreatorContract.createExpiringMultiParty(
+        constructorParams
+      )
+      const empContract = await ethers.getContractAt(
+        txResult.logs[0].args.expiringMultiPartyAddress
+      )
+      const empContractAddress = empContract.address
+
+      const collateralToken = await TestnetERC20.deployed()
+      const collateralAddressUMA = collateralToken.address
+      const ubeAddressUma = process.env.UBE_CONTRACT_ADDRESS
+      console.log('financialContractAddress: ', empContractAddress)
+      console.log('collateralAddressUMA: ', collateralAddressUMA)
+      console.log('ubeAddressUma: ', ubeAddressUma)
+    })
+  }
 })
 
 describe('should delpoy and get references of needed contracts from the blockchain', async () => {

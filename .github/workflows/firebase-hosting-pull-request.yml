@@ -21,7 +21,7 @@ jobs:
         run: npm i && npm run compile && npm run deploy:kovan
       - name: Setup & build frontend
         env:
-          REACT_APP_CHAIN_NETWORK: Kovan
+          REACT_APP_CHAIN_NETWORK: KOVAN
         run: cd frontend && npm i && npm run build
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
