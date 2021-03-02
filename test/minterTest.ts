@@ -12,7 +12,7 @@ import {
   checkDepositEvent,
   checkWithdrawalEvent
 } from './util/CheckEvent'
-import { parseEther } from 'ethers/lib/utils'
+import { formatEther, parseEther } from 'ethers/lib/utils'
 
 /**
  * Assert vs expect vs should:
@@ -44,6 +44,10 @@ let ubeContract: Contract,
   dumContract: Contract,
   empContract: Contract
 
+let empContractAddress: string
+let collateralAddressUMA: string
+let ubeAddressUma: string
+
 // Fake DAI Collaeral details
 const nonCollateralTokenDetails = {
   name: 'DUM Dummy Token',
@@ -70,12 +74,14 @@ const collateralToRedeemNumber = BigNumber.from(
 
 // CONTRACT ADDRESSES
 const network = process.env.CHAIN_NETWORK
+console.log('network: ', network)
 
 // if on kovan, assign contract addresses beforehand. otherwise, deploy UMA addresses in before fixture below
-if (network.localeCompare('KOVAN')) {
-  const empContractAddress = process.env.FINANCIAL_CONTRACT_ADDRESS
-  const collateralAddressUMA = process.env.DAI_CONTRACT_ADDRESS
-  const ubeAddressUma = process.env.UBE_CONTRACT_ADDRESS
+if (network.toLowerCase() === 'kovan') {
+  empContractAddress = process.env.FINANCIAL_CONTRACT_ADDRESS
+  collateralAddressUMA = process.env.DAI_CONTRACT_ADDRESS
+  ubeAddressUma = process.env.UBE_CONTRACT_ADDRESS
+  console.log('Getting contract addresses from env...')
   console.log('financialContractAddress: ', empContractAddress)
   console.log('collateralAddressUMA: ', collateralAddressUMA)
   console.log('ubeAddressUma: ', ubeAddressUma)
@@ -95,30 +101,82 @@ before(async () => {
   otherUserAddress = accounts[2]
 
   // deploy and get references to UMA contracts for local testing only (and not kovan nor mainnet)
-  if (network.localeCompare('LOCALHOST')) {
+  if (network.toLowerCase() === 'localhost') {
     it('Can deploy and get ref to UMA Contracts', async () => {
-      let isValid
+      console.log('Deploying contracts...')
 
-      // deploy UMA core contracts first
+      const [deployer] = await ethers.getSigners()
+      console.log('Account 0 Deployer Address:', deployer.address)
+      console.log(
+        'Account 0 Deployer balance:',
+        formatEther(await deployer.getBalance())
+      )
+
+      // deploy collateral token
+      const TestnetERC20 = await ethers.getContractFactory('TestnetERC20')
+      const collateralToken = await TestnetERC20.deploy('DAI', 'DAI', 18)
+      await isValidContract(collateralToken, 'TestnetERC20')
+      collateralAddressUMA = collateralToken.address
+      console.log('collateral token created! ', collateralAddressUMA)
+
+      // add collateralToken to whitelist
+      const AddressWhitelistFactory = await ethers.getContractFactory(
+        'AddressWhitelist'
+      )
+      const collateralTokenWhitelist = await AddressWhitelistFactory.deploy()
+      await isValidContract(collateralTokenWhitelist, 'AddressWhitelist')
+      await collateralTokenWhitelist.addToWhitelist(collateralAddressUMA)
+      console.log('Collateral token added to address whitelist!')
+
+      // deploy ExpiringMultiPartyLib contract
+      const ExpiringMultiPartyLib = await ethers.getContractFactory(
+        'ExpiringMultiPartyLib'
+      )
+      let empLibContract = await ExpiringMultiPartyLib.deploy()
+      await isValidContract(empLibContract, 'ExpiringMultiPartyLib')
+      console.log('ExpiringMultiPartyLib contract created!')
+
+      // deploy EMPCreator contract
+      const empCreatorFactory = await ethers.getContractFactory(
+        'ExpiringMultiPartyCreator',
+        {
+          libraries: {
+            ExpiringMultiPartyLib: empLibContract.address
+          }
+        }
+      )
+      let empCreatorContract = await empCreatorFactory.deploy()
+      await isValidContract(empCreatorContract, 'ExpiringMultiPartyCreator')
+      console.log('EMPCreator created!')
+
+      // add pricefeed identifier to UMA identifier whitelist
+      const priceFeedId = 'UMATEST'
+      const identifierWhitelistFactory = await ethers.getContractFactory(
+        'IdentifierWhitelist'
+      )
+      const identifierWhitelistContract = await identifierWhitelistFactory.deploy()
+      await isValidContract(identifierWhitelistContract, 'IdentifierWhitelist')
+      await identifierWhitelistContract.addSupportedIdentifier(priceFeedId)
+      console.log('PriceFeed identifier added to identifier whitelist!')
+
+      // add EMPCreator to registry
+      const registryCreatorFactory = await ethers.getContractFactory('Registry')
+      const registryContract = await registryCreatorFactory.deploy()
+      await isValidContract(registryContract, 'Registry')
+      await registryContract.addMember(1, empCreatorContract.address)
+      console.log('EMPCreator added to registry!')
 
       // deploy Timer contract
       const timerFactory = await ethers.getContractFactory('Timer')
       const timerContract = await timerFactory.deploy()
-      isValid = await isValidContract(timerContract, 'Timer')
+      await isValidContract(timerContract, 'Timer')
+      console.log('timer contract created!')
 
-      const empCreatorFactory = await ethers.getContractFactory(
-        'ExpiringMultiPartyCreator'
-      )
-      let empCreatorContract = await empCreatorFactory.deploy()
-      isValid = await isValidContract(
-        empCreatorContract,
-        'ExpiringMultiPartyCreator'
-      )
-
+      // Finally, create the EMP using EMPCreator contract
       const constructorParams = {
         expirationTimestamp: '1706780800',
         collateralAddress: collateralAddressUMA,
-        priceFeedIdentifier: 'UMATEST',
+        priceFeedIdentifier: priceFeedId,
         syntheticName: 'UBE Token',
         syntheticSymbol: 'UBE',
         collateralRequirement: 1500000000000000000,
@@ -134,44 +192,23 @@ before(async () => {
           '0x0000000000000000000000000000000000000000'
       }
 
-      const identifierWhitelistFactory = await ethers.getContractFactory(
-        'IdentifierWhitelist'
-      )
-      const identifierWhitelistContract = await identifierWhitelistFactory.deploy()
-      isValid = await isValidContract(
-        identifierWhitelistContract,
-        'IdentifierWhitelist'
-      )
-      await identifierWhitelistContract.addSupportedIdentifier(
-        constructorParams.priceFeedIdentifier
-      )
-
-      const registryCreatorFactory = await ethers.getContractFactory('Registry')
-      const registryContract = registryCreatorFactory.deploy()
-      isValid = await isValidContract(registryContract, 'Registry')
-      await registryContract.addMember(1, empCreatorContract.address)
-
-      const AddressWhitelistFactory = await ethers.getContractFactory(
-        'AddressWhitelist'
-      )
-      const collateralTokenWhitelist = await AddressWhitelistFactory.deployed()
-      isValid = await isValidContract(
-        collateralTokenWhitelist,
-        'AddressWhitelist'
-      )
-      await collateralTokenWhitelist.addToWhitelist(collateralAddressUMA)
-
       const txResult = await empCreatorContract.createExpiringMultiParty(
         constructorParams
       )
-      const empContract = await ethers.getContractAt(
-        txResult.logs[0].args.expiringMultiPartyAddress
-      )
-      const empContractAddress = empContract.address
+      empContractAddress = txResult.logs[0].args.expiringMultiPartyAddress
+      console.log('EMP contract created! ', empContractAddress)
 
-      const collateralToken = await TestnetERC20.deployed()
-      const collateralAddressUMA = collateralToken.address
-      const ubeAddressUma = process.env.UBE_CONTRACT_ADDRESS
+      ubeAddressUma = process.env.UBE_CONTRACT_ADDRESS
+      // const syntheticToken = await SyntheticToken.at(await emp.tokenCurrency())
+      // // synthetic token balance. Should equal what we minted in step 2.
+      // (await syntheticToken.balanceOf(accounts[0])).toString()
+
+      // // Collateral token balance. Should equal original balance (1000e18) minus deposit (150e18).
+      // (await collateralToken.balanceOf(accounts[0])).toString()
+
+      // // position information. Can see the all key information about our position.
+      // await emp.positions(accounts[0])
+
       console.log('financialContractAddress: ', empContractAddress)
       console.log('collateralAddressUMA: ', collateralAddressUMA)
       console.log('ubeAddressUma: ', ubeAddressUma)
@@ -208,283 +245,283 @@ describe('should delpoy and get references of needed contracts from the blockcha
     ).to.be.true
   })
 
-  it('Get refto the EMP contract', async () => {
-    const empContractReference = await ethers.getContractAt(
-      empContractLabelString,
-      empContractAddress
-    )
+  // it('Get refto the EMP contract', async () => {
+  //   const empContractReference = await ethers.getContractAt(
+  //     empContractLabelString,
+  //     empContractAddress
+  //   )
 
-    empContract = await empContractReference.deployed()
+  //   empContract = await empContractReference.deployed()
 
-    expect(await isValidContract(empContract, empContractLabelString)).to.be
-      .true
-  })
+  //   expect(await isValidContract(empContract, empContractLabelString)).to.be
+  //     .true
+  // })
 
-  it('Get ref to the UBE contract', async () => {
-    const ubeContractReference = await ethers.getContractAt(
-      expandedERC20LabelString,
-      ubeAddressUma
-    )
+  // it('Get ref to the UBE contract', async () => {
+  //   const ubeContractReference = await ethers.getContractAt(
+  //     expandedERC20LabelString,
+  //     ubeAddressUma
+  //   )
 
-    ubeContract = await ubeContractReference.deployed()
+  //   ubeContract = await ubeContractReference.deployed()
 
-    expect(await isValidContract(ubeContract, ubeContractLabelString)).to.be
-      .true
-  })
+  //   expect(await isValidContract(ubeContract, ubeContractLabelString)).to.be
+  //     .true
+  // })
 
-  it('Can deploy and get ref to Minter Contract', async () => {
-    const Minter = await ethers.getContractFactory(minterContractLabelString)
+  // it('Can deploy and get ref to Minter Contract', async () => {
+  //   const Minter = await ethers.getContractFactory(minterContractLabelString)
 
-    const minterContractDeploy = await Minter.deploy(
-      ubeAddressUma,
-      empContractAddress
-    )
+  //   const minterContractDeploy = await Minter.deploy(
+  //     ubeAddressUma,
+  //     empContractAddress
+  //   )
 
-    minterContract = await minterContractDeploy.deployed()
+  //   minterContract = await minterContractDeploy.deployed()
 
-    expect(await isValidContract(minterContract, minterContractLabelString)).to
-      .be.true
+  //   expect(await isValidContract(minterContract, minterContractLabelString)).to
+  //     .be.true
 
-    await minterContract.initialize()
-  })
+  //   await minterContract.initialize()
+  // })
 
-  it('Can whitelist collateral address to minter contract', async () => {
-    // whitelist DAI collateral address
-    await minterContract.addCollateralAddress(collateralAddressUMA)
-    expect(await minterContract.isWhitelisted(collateralAddressUMA)).to.be.true
-  })
+  // it('Can whitelist collateral address to minter contract', async () => {
+  //   // whitelist DAI collateral address
+  //   await minterContract.addCollateralAddress(collateralAddressUMA)
+  //   expect(await minterContract.isWhitelisted(collateralAddressUMA)).to.be.true
+  // })
 
-  it('Can deploy a non-collateral ERC token for testing', async () => {
-    dumContract = await deployContract(
-      expandedERC20LabelString,
-      nonCollateralTokenDetails
-    )
+  // it('Can deploy a non-collateral ERC token for testing', async () => {
+  //   dumContract = await deployContract(
+  //     expandedERC20LabelString,
+  //     nonCollateralTokenDetails
+  //   )
 
-    // (to check) assign dai address
-    nonCollateralAddress = dumContract.address
+  //   // (to check) assign dai address
+  //   nonCollateralAddress = dumContract.address
 
-    // add address as minter - contractCreatorAddress not automatically added as minter for some reason
-    await dumContract.addMinter(contractCreatorAccount.address)
+  //   // add address as minter - contractCreatorAddress not automatically added as minter for some reason
+  //   await dumContract.addMinter(contractCreatorAccount.address)
 
-    // mint token
-    await dumContract.mint(contractCreatorAccount.address, intialCollateral)
+  //   // mint token
+  //   await dumContract.mint(contractCreatorAccount.address, intialCollateral)
 
-    // get balance
-    const dumBalance = BigNumber.from(
-      await daiContract.balanceOf(contractCreatorAccount.address)
-    )
+  //   // get balance
+  //   const dumBalance = BigNumber.from(
+  //     await daiContract.balanceOf(contractCreatorAccount.address)
+  //   )
 
-    // test if values are equal
-    expect(dumBalance.gte(intialCollateral)).to.be.true
-  })
+  //   // test if values are equal
+  //   expect(dumBalance.gte(intialCollateral)).to.be.true
+  // })
 })
 
-describe('Can accept collateral and mint synthetic', async () => {
-  beforeEach(async () => {})
+// describe('Can accept collateral and mint synthetic', async () => {
+//   beforeEach(async () => {})
 
-  it('sending collateral ERC20 to deposit func should mint UBE, return UBE to msg.sender', async () => {
-    await daiContract.approve(minterContract.address, collateralDeposit)
-    // deposit collateral to minter contract
-    const depositTxn = await minterContract.depositByCollateralAddress(
-      BigNumber.from(`${1500 * 100}`),
-      BigNumber.from(`${500 * 100}`),
-      collateralAddressUMA
-    )
+//   it('sending collateral ERC20 to deposit func should mint UBE, return UBE to msg.sender', async () => {
+//     await daiContract.approve(minterContract.address, collateralDeposit)
+//     // deposit collateral to minter contract
+//     const depositTxn = await minterContract.depositByCollateralAddress(
+//       BigNumber.from(`${1500 * 100}`),
+//       BigNumber.from(`${500 * 100}`),
+//       collateralAddressUMA
+//     )
 
-    await depositTxn.wait()
+//     await depositTxn.wait()
 
-    expect(
-      await checkDepositEvent(
-        minterContract,
-        contractCreatorAccount.address,
-        collateralAddressUMA,
-        collateralDeposit,
-        BigNumber.from(parseEther('500'))
-      )
-    ).to.be.true
-  })
+//     expect(
+//       await checkDepositEvent(
+//         minterContract,
+//         contractCreatorAccount.address,
+//         collateralAddressUMA,
+//         collateralDeposit,
+//         BigNumber.from(parseEther('500'))
+//       )
+//     ).to.be.true
+//   })
 
-  it('sending non collateral ERC20 to deposit func should not mint UBE, not return UBE to msg.sender and return error', async () => {
-    // check that noncollateral contract is not whitelsited in the contract
-    expect(await minterContract.isWhitelisted(nonCollateralAddress)).to.be.false
+//   it('sending non collateral ERC20 to deposit func should not mint UBE, not return UBE to msg.sender and return error', async () => {
+//     // check that noncollateral contract is not whitelsited in the contract
+//     expect(await minterContract.isWhitelisted(nonCollateralAddress)).to.be.false
 
-    try {
-      await minterContract.depositByCollateralAddress(
-        collateralDeposit,
-        BigNumber.from(`${1500 * 100}`),
-        nonCollateralAddress
-      )
-      assert(false, 'Error is not thrown')
-    } catch (err) {
-      expect(err.message).to.be.equal(
-        'VM Exception while processing transaction: revert This is not allowed as collateral.'
-      )
-    }
-  })
-  /*
-  it('deposit func should not mint UBE when msg.sender do not  have enough collateral balance and return error', async () => {
-    try {
-      await minterContract.depositByCollateralAddress(
-        parseEther('1230912309123091230192'),
-        BigNumber.from(`${1500 * 100}`),
-        collateralAddressUMA
-      )
-      assert(false, 'Error is not thrown')
-    } catch (err) {
-      expect(err.message).to.be.equal(
-        'VM Exception while processing transaction: revert Not enough collateral amount'
-      )
-    }
-  })
-  */
-})
+//     try {
+//       await minterContract.depositByCollateralAddress(
+//         collateralDeposit,
+//         BigNumber.from(`${1500 * 100}`),
+//         nonCollateralAddress
+//       )
+//       assert(false, 'Error is not thrown')
+//     } catch (err) {
+//       expect(err.message).to.be.equal(
+//         'VM Exception while processing transaction: revert This is not allowed as collateral.'
+//       )
+//     }
+//   })
+//   /*
+//   it('deposit func should not mint UBE when msg.sender do not  have enough collateral balance and return error', async () => {
+//     try {
+//       await minterContract.depositByCollateralAddress(
+//         parseEther('1230912309123091230192'),
+//         BigNumber.from(`${1500 * 100}`),
+//         collateralAddressUMA
+//       )
+//       assert(false, 'Error is not thrown')
+//     } catch (err) {
+//       expect(err.message).to.be.equal(
+//         'VM Exception while processing transaction: revert Not enough collateral amount'
+//       )
+//     }
+//   })
+//   */
+// })
 
-describe('Can redeem synth for original ERC20 collateral', async () => {
-  it('sending synth and calling redeem func should burn synth, return ERC20 collateral to msg.sender', async () => {
-    await ubeContract.approve(minterContract.address, collateralToRedeem)
+// describe('Can redeem synth for original ERC20 collateral', async () => {
+//   it('sending synth and calling redeem func should burn synth, return ERC20 collateral to msg.sender', async () => {
+//     await ubeContract.approve(minterContract.address, collateralToRedeem)
 
-    const redeemTxn = await minterContract.redeemByCollateralAddress(
-      collateralToRedeemNumber,
-      collateralAddressUMA
-    )
+//     const redeemTxn = await minterContract.redeemByCollateralAddress(
+//       collateralToRedeemNumber,
+//       collateralAddressUMA
+//     )
 
-    await redeemTxn.wait()
+//     await redeemTxn.wait()
 
-    expect(
-      await checkWithdrawalEvent(
-        minterContract,
-        contractCreatorAccount.address,
-        daiContract.address,
-        BigNumber.from(parseEther('90')),
-        BigNumber.from(parseEther('30'))
-      )
-    ).to.be.true
-  })
+//     expect(
+//       await checkWithdrawalEvent(
+//         minterContract,
+//         contractCreatorAccount.address,
+//         daiContract.address,
+//         BigNumber.from(parseEther('90')),
+//         BigNumber.from(parseEther('30'))
+//       )
+//     ).to.be.true
+//   })
 
-  it('sending invalid synth and calling redeem func should not burn synth, not return ERC20 collateral to msg.sender, and return err', async () => {
-    // check that noncollateral contract is not whitelsited in the contract
-    expect(await minterContract.isWhitelisted(nonCollateralAddress)).to.be.false
+//   it('sending invalid synth and calling redeem func should not burn synth, not return ERC20 collateral to msg.sender, and return err', async () => {
+//     // check that noncollateral contract is not whitelsited in the contract
+//     expect(await minterContract.isWhitelisted(nonCollateralAddress)).to.be.false
 
-    try {
-      await minterContract.redeemByCollateralAddress(
-        collateralToRedeem,
-        nonCollateralAddress
-      )
-      assert(false, 'Error is not thrown')
-    } catch (err) {
-      expect(err.message).to.be.equal(
-        'VM Exception while processing transaction: revert This is not allowed as collateral.'
-      )
-    }
-  })
-})
+//     try {
+//       await minterContract.redeemByCollateralAddress(
+//         collateralToRedeem,
+//         nonCollateralAddress
+//       )
+//       assert(false, 'Error is not thrown')
+//     } catch (err) {
+//       expect(err.message).to.be.equal(
+//         'VM Exception while processing transaction: revert This is not allowed as collateral.'
+//       )
+//     }
+//   })
+// })
 
-describe('Can call view functions from the contract', () => {
-  it('Get total collateral deposited to the financial contract of a collateral', async () => {
-    expect(
-      (
-        await minterContract.getTotalCollateralByCollateralAddress(
-          collateralAddressUMA
-        )
-      ).gte(expectedUserCollateralLeft)
-    ).to.be.true
-  })
+// describe('Can call view functions from the contract', () => {
+//   it('Get total collateral deposited to the financial contract of a collateral', async () => {
+//     expect(
+//       (
+//         await minterContract.getTotalCollateralByCollateralAddress(
+//           collateralAddressUMA
+//         )
+//       ).gte(expectedUserCollateralLeft)
+//     ).to.be.true
+//   })
 
-  it('Get user total collateral deposited to the financial contract of a collateral', async () => {
-    expect(
-      await minterContract.getUserCollateralByCollateralAddress(
-        collateralAddressUMA
-      )
-    ).to.equal(expectedUserCollateralLeft)
-  })
+//   it('Get user total collateral deposited to the financial contract of a collateral', async () => {
+//     expect(
+//       await minterContract.getUserCollateralByCollateralAddress(
+//         collateralAddressUMA
+//       )
+//     ).to.equal(expectedUserCollateralLeft)
+//   })
 
-  it('Get user total minted tokens', async () => {
-    expect(
-      await minterContract.getUserTotalMintedTokensByCollateralAddress(
-        collateralAddressUMA
-      )
-    ).to.equal(expectedUserUBELeft)
-  })
+//   it('Get user total minted tokens', async () => {
+//     expect(
+//       await minterContract.getUserTotalMintedTokensByCollateralAddress(
+//         collateralAddressUMA
+//       )
+//     ).to.equal(expectedUserUBELeft)
+//   })
 
-  it('Does not return the balance of the collateral and returns an error if not whitelisted', async () => {
-    try {
-      await minterContract.getTotalCollateralByCollateralAddress(
-        dumContract.address
-      )
-      assert(false, 'Error is not thrown')
-    } catch (err) {
-      expect(err.message).to.be.equal(
-        'VM Exception while processing transaction: revert Collateral address is not whitelisted.'
-      )
-    }
-  })
+//   it('Does not return the balance of the collateral and returns an error if not whitelisted', async () => {
+//     try {
+//       await minterContract.getTotalCollateralByCollateralAddress(
+//         dumContract.address
+//       )
+//       assert(false, 'Error is not thrown')
+//     } catch (err) {
+//       expect(err.message).to.be.equal(
+//         'VM Exception while processing transaction: revert Collateral address is not whitelisted.'
+//       )
+//     }
+//   })
 
-  it('Does not return userBalance and teturns an error if the collateral address is not whitelisted', async () => {
-    try {
-      await minterContract.getUserCollateralByCollateralAddress(
-        dumContract.address
-      )
-      assert(false, 'Error is not thrown')
-    } catch (err) {
-      expect(err.message).to.be.equal(
-        'VM Exception while processing transaction: revert Collateral address is not whitelisted.'
-      )
-    }
-  })
+//   it('Does not return userBalance and teturns an error if the collateral address is not whitelisted', async () => {
+//     try {
+//       await minterContract.getUserCollateralByCollateralAddress(
+//         dumContract.address
+//       )
+//       assert(false, 'Error is not thrown')
+//     } catch (err) {
+//       expect(err.message).to.be.equal(
+//         'VM Exception while processing transaction: revert Collateral address is not whitelisted.'
+//       )
+//     }
+//   })
 
-  it('Does not return userBalance and teturns an error if the collateral address is not whitelisted', async () => {
-    try {
-      await minterContract.getUserTotalMintedTokensByCollateralAddress(
-        dumContract.address
-      )
-      assert(false, 'Error is not thrown')
-    } catch (err) {
-      expect(err.message).to.be.equal(
-        'VM Exception while processing transaction: revert Collateral address is not whitelisted.'
-      )
-    }
-  })
+//   it('Does not return userBalance and teturns an error if the collateral address is not whitelisted', async () => {
+//     try {
+//       await minterContract.getUserTotalMintedTokensByCollateralAddress(
+//         dumContract.address
+//       )
+//       assert(false, 'Error is not thrown')
+//     } catch (err) {
+//       expect(err.message).to.be.equal(
+//         'VM Exception while processing transaction: revert Collateral address is not whitelisted.'
+//       )
+//     }
+//   })
 
-  it('Can get the current conversion rate for the given collateral', async () => {
-    console.log('GCR: ', (await minterContract.getGCR()).toString())
+//   it('Can get the current conversion rate for the given collateral', async () => {
+//     console.log('GCR: ', (await minterContract.getGCR()).toString())
 
-    expect(
-      BigNumber.from(await minterContract.getGCR()).gt(BigNumber.from(0)),
-      'No position is created to compute GCR'
-    ).to.be.true
-  })
+//     expect(
+//       BigNumber.from(await minterContract.getGCR()).gt(BigNumber.from(0)),
+//       'No position is created to compute GCR'
+//     ).to.be.true
+//   })
 
-  it('Can whitelist a collateral address', async () => {
-    await minterContract.addCollateralAddress(dumContract.address)
-    expect(await minterContract.isWhitelisted(dumContract.address)).to.be.true
-  })
+//   it('Can whitelist a collateral address', async () => {
+//     await minterContract.addCollateralAddress(dumContract.address)
+//     expect(await minterContract.isWhitelisted(dumContract.address)).to.be.true
+//   })
 
-  it('Can remove a collateral address to the whitelist', async () => {
-    await minterContract.removeCollateralAddress(dumContract.address)
-    expect(await minterContract.isWhitelisted(dumContract.address)).to.be.false
-  })
+//   it('Can remove a collateral address to the whitelist', async () => {
+//     await minterContract.removeCollateralAddress(dumContract.address)
+//     expect(await minterContract.isWhitelisted(dumContract.address)).to.be.false
+//   })
 
-  it('Can check if the given collateral address is in the whitelist', async () => {
-    expect(await minterContract.isWhitelisted(collateralAddressUMA)).to.be.true
-  })
+//   it('Can check if the given collateral address is in the whitelist', async () => {
+//     expect(await minterContract.isWhitelisted(collateralAddressUMA)).to.be.true
+//   })
 
-  it('Can check the current financial contract address', async () => {
-    expect(await minterContract.getFinancialContractAddress()).to.be.equal(
-      empContractAddress
-    )
-  })
+//   it('Can check the current financial contract address', async () => {
+//     expect(await minterContract.getFinancialContractAddress()).to.be.equal(
+//       empContractAddress
+//     )
+//   })
 
-  it('Can change the financial address as the contract adming', async () => {
-    const dummyEmp = '0xc3E4EDA3c2Da722e7b143773EEd77249584B1782'
-    const changeFinancialTx = await minterContract.setFinancialContractAddress(
-      dummyEmp
-    )
+//   it('Can change the financial address as the contract adming', async () => {
+//     const dummyEmp = '0xc3E4EDA3c2Da722e7b143773EEd77249584B1782'
+//     const changeFinancialTx = await minterContract.setFinancialContractAddress(
+//       dummyEmp
+//     )
 
-    await changeFinancialTx.wait()
-    expect(await minterContract.getFinancialContractAddress()).to.be.equal(
-      dummyEmp
-    )
+//     await changeFinancialTx.wait()
+//     expect(await minterContract.getFinancialContractAddress()).to.be.equal(
+//       dummyEmp
+//     )
 
-    checkChangedFinancialContractAddressEvent(minterContract, dummyEmp)
-  })
-})
+//     checkChangedFinancialContractAddressEvent(minterContract, dummyEmp)
+//   })
+// })

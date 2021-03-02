@@ -33,11 +33,15 @@ const config: HardhatUserConfig = {
       chainId: 1337,
       accounts: {
         mnemonic: MNEMONIC_SEED
-      }
+      },
+      gasPrice: 50000000000,
+      blockGasLimit: 50000000000
     },
     localhost: {
       chainId: 1337,
-      url: 'http://127.0.0.1:9545'
+      url: 'http://127.0.0.1:9545',
+      gasPrice: 50000000000,
+      blockGasLimit: 50000000000
     }
   }
 }
