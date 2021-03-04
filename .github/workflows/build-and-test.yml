@@ -9,6 +9,10 @@ jobs:
         uses: actions/setup-node@v1
         with:
           node-version: 14.15.0
+      - name: Check out minter repository
+        uses: actions/checkout@v2
+        with:
+          path: ./minter
       - name: Check out protocol repository
         uses: actions/checkout@v2
         with:
@@ -25,11 +29,7 @@ jobs:
           yarn qbuild
           npx ganache-cli -p 9545 -e 1000000 -l 10000000 &
           yarn truffle migrate --network test
-      - name: Check out minter repository
-        uses: actions/checkout@v2
-        with:
-          path: ./minter
-      - name: Install deps and compile
+      - name: Install minter deps and compile
         run: |
           cd ./minter
           npm i
