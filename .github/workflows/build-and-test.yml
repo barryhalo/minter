@@ -14,7 +14,9 @@ jobs:
           repository: halodao/protocol
           path: protocol
       - name: Install Prereqs
-        run: sudo apt-get update && sudo apt-get install -y libudev-dev libusb-1.0-0-dev yarn
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev libusb-1.0-0-dev yarn
       - name: Setup protocol, start chain and migrate
         run: |
           cd protocol
@@ -22,7 +24,6 @@ jobs:
           yarn qbuild
           npx ganache-cli -p 9545 -e 1000000 -l 10000000 &
           yarn truffle migrate --network test
-          cd ../
       - name: Check out minter repository
         uses: actions/checkout@v2
         with:
@@ -33,4 +34,6 @@ jobs:
           npm i
           npm run compile
       - name: Run local tests
-        run: npm run test:local
+        run: |
+          cd minter
+          npm run test:local
