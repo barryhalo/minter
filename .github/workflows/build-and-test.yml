@@ -35,6 +35,8 @@ jobs:
           npm i
           npm run compile
       - name: Run local tests
+        env:
+          CHAIN_NETWORK: ${{ secrets.CHAIN_NETWORK }}
         run: |
           cd minter
           npm run test:local
