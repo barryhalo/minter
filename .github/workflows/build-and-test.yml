@@ -16,6 +16,7 @@ jobs:
       - name: Setup protocol, start chain and migrate
         run: |
           cd protocol
+          rm yarn.lock
           yarn
           yarn qbuild
           npx ganache-cli -p 9545 -e 1000000 -l 10000000 &
