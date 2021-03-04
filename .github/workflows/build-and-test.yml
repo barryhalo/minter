@@ -13,14 +13,14 @@ jobs:
         uses: actions/checkout@v2
         with:
           repository: halodao/protocol
-          path: protocol
+          path: ./protocol
       - name: Install Prereqs
         run: |
           sudo apt-get update
           sudo apt-get install -y libudev-dev libusb-1.0-0-dev yarn
       - name: Setup protocol, start chain and migrate
         run: |
-          cd protocol
+          cd ./protocol
           yarn
           yarn qbuild
           npx ganache-cli -p 9545 -e 1000000 -l 10000000 &
@@ -28,15 +28,15 @@ jobs:
       - name: Check out minter repository
         uses: actions/checkout@v2
         with:
-          path: minter
+          path: ./minter
       - name: Install deps and compile
         run: |
-          cd minter
+          cd ./minter
           npm i
           npm run compile
       - name: Run local tests
         env:
           CHAIN_NETWORK: ${{ secrets.CHAIN_NETWORK }}
         run: |
-          cd minter
+          cd ./minter
           npm run test:local
