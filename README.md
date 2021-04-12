@@ -1,6 +1,41 @@
-# Setup checklist
+## Step 1
+### Setting up environment variables
+Check `env.example` at project root and fill in corresonpding values on your local
 
-[ ] Clone UMA protocol from [here](https://github.com/HaloDAO/protocol)
+**INFURA_PROJECT_ID**
+
+Can be found in 1password vault, inside `minter.env(local)` or `minter.env(kovan)` files
+
+**MNEMONIC_SEED**
+
+Generate a 12 word mnemonic seed phrase (can use ganache, metamask or ask project admin for current seed used for remote envs)
+
+**CHAIN_NETWORK**
+
+When setting up locally, paste `LOCALHOST` as value to `CHAIN_NETWORK`. Other values are `KOVAN` or `MAINNET` (we are not on other testnets atm)
+
+## Step 2
+### Running UMA protocol, this is a Minter dependency when running locally
+1. Setup UMA locally by running `git clone https://github.com/HaloDAO/protocol` and following the quick start steps in that repo
+2. Run the Ganache node using this command `npx ganache-cli -p 9545 -e 1000000 -l 10000000` (don't forget to note down the `account[0]` private key and wallet address somewhere)
+3. While still in the `protocol` project root, run `yarn truffle console --network test` to enter the truffle console.
+4. Run `migrate` to migrate UMA contract in local Ganache node inside the truffle console.
+5. Make an EMP following steps 3-8 [here](https://docs.umaproject.org/build-walkthrough/mint-locally#parameterize-and-deploy-a-contract)
+
+## Step 3
+### Setting up environment variables
+
+**FINANCIAL_CONTRACT_ADDRESS**
+
+Inside truffle console, get the emp address by entering `emp.address`, `emp.address` is the `FINANCIAL_CONTRACT_ADDRESS`
+
+**DAI_CONTRACT_ADDRESS**
+
+Inside truffle console, create an instance of the collateral token to get its address. Run `const collateralToken = await TestnetERC20.deployed()` then `collateralToken.address`, `collateralToken.address` is the `DAI_CONTRACT_ADDRESS`
+
+**UBE_CONTRACT_ADDRESS**
+
+Inside truffle console, create an instance of the synthetic token to get its address. Run `const syntheticToken = await SyntheticToken.at(await emp.tokenCurrency())` then `syntheticToken.address`, `syntheticToken.address` is the `UBE_CONTRACT_ADDRESS`
 
 # Setup environment variables
 
