@@ -3,16 +3,40 @@ on: [push]
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    environment: test
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v2
-      - name: Switch Node.js version
+      - name: Switch to Node.js v14.15.0
         uses: actions/setup-node@v1
         with:
           node-version: 14.15.0
-      - name: Compile & test contracts
-        run: npm i && npm run compile && npm test
-      - name: Run node & deploy contracts
-        run: npm run node & npm run deploy:local
-      - name: Test & build frontend
-        run: cd frontend && npm i && CI=true npm test && npm run build
+      - name: Check out minter repository
+        uses: actions/checkout@v2
+        with:
+          path: ./minter
+      - name: Check out protocol repository
+        uses: actions/checkout@v2
+        with:
+          repository: halodao/protocol
+          path: ./protocol
+      - name: Install Prereqs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev libusb-1.0-0-dev yarn
+      - name: Setup protocol, start chain and migrate
+        run: |
+          cd ./protocol
+          yarn
+          yarn qbuild
+          npx ganache-cli -p 9545 -e 1000000 -l 10000000 &
+          yarn truffle migrate --network test
+      - name: Install minter deps and compile
+        run: |
+          cd ./minter
+          npm i
+          npm run compile
+      - name: Run local tests
+        env:
+          CHAIN_NETWORK: ${{ secrets.CHAIN_NETWORK }}
+        run: |
+          cd ./minter
+          npm run test:local
