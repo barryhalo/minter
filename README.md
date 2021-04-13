@@ -19,8 +19,11 @@ When setting up locally, paste `LOCALHOST` as value to `CHAIN_NETWORK`. Other va
 1. Setup UMA locally by running `git clone https://github.com/HaloDAO/protocol` and following the quick start steps in that repo
 2. Run the Ganache node using this command `npx ganache-cli -p 9545 -e 1000000 -l 10000000` (don't forget to note down the `account[0]` private key and wallet address somewhere)
 3. While still in the `protocol` project root, run `yarn truffle console --network test` to enter the truffle console.
-4. Run `migrate` to migrate UMA contract in local Ganache node inside the truffle console.
-5. Make an EMP following steps 3-8 [here](https://docs.umaproject.org/build-walkthrough/mint-locally#parameterize-and-deploy-a-contract)
+4. Running `migrate` will generate a file named `uma-contract-address.json` inside the minter repo, full path is `halodao-minter/test/uma-contract-address.json`, so make sure you already cloned the minter repo before running `migrate`, see Step 5, #1
+
+Once minter is cloned, run `migrate` to migrate UMA contract in local Ganache node inside the truffle console.
+
+6. Make an EMP following steps 3-8 [here](https://docs.umaproject.org/build-walkthrough/mint-locally#parameterize-and-deploy-a-contract)
 
 ## Step 3
 ### Setting up environment variables
@@ -36,6 +39,30 @@ Inside truffle console, create an instance of the collateral token to get its ad
 **UBE_CONTRACT_ADDRESS**
 
 Inside truffle console, create an instance of the synthetic token to get its address. Run `const syntheticToken = await SyntheticToken.at(await emp.tokenCurrency())` then `syntheticToken.address`, `syntheticToken.address` is the `UBE_CONTRACT_ADDRESS`
+
+## Step 4
+### Metamask
+1. Be sure to have metamask plugin installed in your browser (recommended browser is Chrome)
+2. Login to Metamask and point the network to localhost and port 9545 before starting the frontend app
+
+Config
+
+<img width="354" alt="Screen Shot 2021-04-13 at 7 54 58 AM" src="https://user-images.githubusercontent.com/81855319/114476831-94de7380-9c2d-11eb-81c4-bef5eb78929d.png">
+
+## Step 5
+### Running Minter
+1. Open a new terminal window, if you haven't cloned minter yet, run `git clone https://github.com/HaloDAO/minter`
+2. run `cd minter`
+3. run `npm i` to install backend dependencies
+4. run `npm run test:local` to run contract test suite to run smart contract test cases
+5. run `npm run deploy:local` to compile and deploy the Minter contract to the ganache node that UMA was deployed on
+
+## Step 6
+### Running Minter frontend
+
+1. cd to frontend `cd frontend`
+2. run `npm i` to install frontend dependencies
+3. run `npm start` to serve the app locally
 
 # Setup environment variables
 
