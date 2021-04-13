@@ -50,19 +50,21 @@ Config
 <img width="354" alt="Screen Shot 2021-04-13 at 7 54 58 AM" src="https://user-images.githubusercontent.com/81855319/114476831-94de7380-9c2d-11eb-81c4-bef5eb78929d.png">
 
 ## Step 5
-### Running Minter
+### Running Minter and deploying locally
 1. Open a new terminal window, if you haven't cloned minter yet, run `git clone https://github.com/HaloDAO/minter`
 2. run `cd minter`
 3. run `npm i` to install backend dependencies
 4. run `npm run test:local` to run contract test suite to run smart contract test cases
 5. run `npm run deploy:local` to compile and deploy the Minter contract to the ganache node that UMA was deployed on
 
-## Step 6
 ### Running Minter frontend
-
 1. cd to frontend `cd frontend`
 2. run `npm i` to install frontend dependencies
 3. run `npm start` to serve the app locally
+
+## Step 6
+### Minter deployment in kovan
+1. Same as step 5, just replace `npm run deploy:local` with `npm run deploy:kovan`
 
 ## Environment Setup
 
